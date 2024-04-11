@@ -27,7 +27,7 @@ def create_temp_ssl_cert_and_key():
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.COUNTRY_NAME, u"VN"),
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, u"Hanoi"),
-            x509.NameAttribute(NameOID.LOCALITY_NAME, u"Test"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, u"Thanh Tri"),
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"KMA"),
             x509.NameAttribute(NameOID.COMMON_NAME, u"localhost"),
         ])

@@ -1,20 +1,20 @@
 import os
 import hashlib
-from Cryptodome.Cipher import AES
-from Cryptodome.Random import get_random_bytes
-import base64
+from Crypto.Cipher import AES
+from Crypto.Random import random
 
 # Define constants
 SALT_SIZE = 16
 TAG_SIZE = 16
 KEY_SIZE = 32
 NONCE_SIZE = 16
+MAC_SIZE = 16
 
 # Derive the key from the password and salt
 def derive_key(password, salt):
     dk = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000, KEY_SIZE)
     return dk
-    
+
 # Encrypt the message using AES-GCM mode
 def encrypt(key, message):
     if not isinstance(message, bytes):

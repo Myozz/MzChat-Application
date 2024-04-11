@@ -21,32 +21,34 @@ from ciphertext import SALT_SIZE, derive_key, encrypt, decrypt
 
 # Define constants
 SALT_SIZE = 16
+IV_SIZE = 16
 TAG_SIZE = 16
 KEY_SIZE = 32
 NONCE_SIZE = 16
+MAC_SIZE = 16
 
-def get_drive_info(drive_letter):
-    drive_path = f"{drive_letter}:\\"
-    kernel32 = ctypes.windll.kernel32
+# def get_drive_info(drive_letter):
+#     drive_path = f"{drive_letter}:\\"
+#     kernel32 = ctypes.windll.kernel32
 
-    volume_name_buffer = ctypes.create_unicode_buffer(1024)
-    serial_number = ctypes.c_uint32()
-    max_component_length = ctypes.c_uint32()
-    file_system_flags = ctypes.c_uint32()
-    file_system_name_buffer = ctypes.create_unicode_buffer(1024)
+#     volume_name_buffer = ctypes.create_unicode_buffer(1024)
+#     serial_number = ctypes.c_uint32()
+#     max_component_length = ctypes.c_uint32()
+#     file_system_flags = ctypes.c_uint32()
+#     file_system_name_buffer = ctypes.create_unicode_buffer(1024)
 
-    kernel32.GetVolumeInformationW(
-        ctypes.c_wchar_p(drive_path),
-        volume_name_buffer,
-        ctypes.sizeof(volume_name_buffer),
-        ctypes.byref(serial_number),
-        ctypes.byref(max_component_length),
-        ctypes.byref(file_system_flags),
-        file_system_name_buffer,
-        ctypes.sizeof(file_system_name_buffer),
-    )
+#     kernel32.GetVolumeInformationW(
+#         ctypes.c_wchar_p(drive_path),
+#         volume_name_buffer,
+#         ctypes.sizeof(volume_name_buffer),
+#         ctypes.byref(serial_number),
+#         ctypes.byref(max_component_length),
+#         ctypes.byref(file_system_flags),
+#         file_system_name_buffer,
+#         ctypes.sizeof(file_system_name_buffer),
+#     )
 
-    return volume_name_buffer.value, serial_number.value
+#     return volume_name_buffer.value, serial_number.value
 
 class MzChat:
     def __init__(self, master, start_server=False):
@@ -57,8 +59,6 @@ class MzChat:
 
         self.failed_attempts = {}  # Add a failed_attempts dictionary
 
-        self.key = self.get_encryption_key()
-
         # Initialize the chat_window attribute
         self.chat_window = scrolledtext.ScrolledText(self.master, wrap=tk.WORD, font=("Arial", 12))
         self.chat_window.config(state=tk.DISABLED)
@@ -66,6 +66,7 @@ class MzChat:
      
         self.password = None
         self.key = None
+        self.passkey = None
         self.server_port = None
             
         # Initialize the attributes
@@ -79,6 +80,7 @@ class MzChat:
         self.is_connected = False
 
         self.sock = None
+        self.server_sock = None
         self.clients = {}
         self.create_widgets()
         
@@ -196,7 +198,7 @@ class MzChat:
 
     def load_settings(self):
         config = configparser.ConfigParser()
-        config.read('MzChat.cfg')
+        config.read('config.cfg')
 
         if 'SETTINGS' in config:
             if 'username' in config['SETTINGS']:
@@ -205,12 +207,12 @@ class MzChat:
                 self.server_ip = config['SETTINGS']['server_ip']
             if 'server_port' in config['SETTINGS']:
                 self.server_port = int(config['SETTINGS']['server_port'])
-            if 'password' in config['SETTINGS']:
-                encrypted_password = config['SETTINGS']['password']
-                key = config['SETTINGS'].get('key')
-                if key:
-                    self.key = key.encode()
-                    self.password = self.decrypt_password(encrypted_password)
+            # if 'password' in config['SETTINGS']:
+            #     encrypted_password = config['SETTINGS']['password']
+            #     key = config['SETTINGS'].get('key')
+            #     if key:
+            #         self.passkey = key.encode()
+            #         self.password = self.decrypt_password(encrypted_password)
 
     def set_password(self):
         password = askstring("Set Password", "Enter the password:", show='*')
@@ -230,12 +232,12 @@ class MzChat:
         config['SETTINGS']['server_port'] = str(self.server_port)
 
         # Encrypt password
-        if self.password:
-            key = Fernet.generate_key()
-            cipher_suite = Fernet(key)
-            cipher_text = cipher_suite.encrypt(self.password.encode())
-            config['SETTINGS']['password'] = cipher_text.decode()
-            config['SETTINGS']['key'] = key.decode()
+        # if self.password:
+        #     key = Fernet.generate_key()
+        #     cipher_suite = Fernet(key)
+        #     cipher_text = cipher_suite.encrypt(self.password.encode())
+        #     config['SETTINGS']['password'] = cipher_text.decode()
+        #     config['SETTINGS']['key'] = key.decode()
 
         with open('config.cfg', 'w') as config_file:
             config.write(config_file)
@@ -326,6 +328,7 @@ class MzChat:
                 threading.Thread(target=self.receive_message, args=(self.sock, None)).start()
                 self.send_message(is_username=True)  # Send username to the server
                 self.update_users_list([self.username])  # Add this line to add the client's username to the user list
+                self.add_message_to_chat("Connected to server.\n")
             except Exception as e:
                 messagebox.showerror("Error", f"Could not connect to server: {e}")
 
@@ -335,7 +338,7 @@ class MzChat:
             self.sock.close()
             self.is_connected = False
             self.add_message_to_chat("Disconnected from server.\n")
-            if self.ssl_cert_path and self.ssl_key_pah:
+            if self.ssl_cert_path and self.ssl_key_path:
                 shutil.rmtree(os.path.dirname(self.ssl_cert_path))
         else:
             messagebox.showerror("Error", "Not connected as a client.")
@@ -378,24 +381,24 @@ class MzChat:
 
 #######################################################################
                 
-    def decrypt_password(self, encrypted_password):
-        try:
-            cipher_suite = Fernet(self.key)
-            decrypted_password = cipher_suite.decrypt(encrypted_password.encode())
-            return decrypted_password.decode()
-        except Exception as e:
-            messagebox.showerror("Error", f"Error decrypting password: {e}")
-            return None
+    # def decrypt_password(self, encrypted_password):
+    #     try:
+    #         cipher_suite = Fernet(self.key)
+    #         decrypted_password = cipher_suite.decrypt(encrypted_password.encode())
+    #         return decrypted_password.decode()
+    #     except Exception as e:
+    #         messagebox.showerror("Error", f"Error decrypting password: {e}")
+    #         return None
 
-    def get_encryption_key(self):
-        drive_letter = os.path.abspath(os.sep)[0]
-        try:
-            volume_label, serial_number = get_drive_info(drive_letter)
-            key = f"{serial_number}-{volume_label}".encode()
-            return base64.urlsafe_b64encode(key)
-        except Exception as e:
-            messagebox.showerror("Error", f"Error getting hard drive info: {e}")
-            return None
+    # def get_encryption_key(self):
+    #     drive_letter = os.path.abspath(os.sep)[0]
+    #     try:
+    #         volume_label, serial_number = get_drive_info(drive_letter)
+    #         key = f"{serial_number}-{volume_label}".encode()
+    #         return base64.urlsafe_b64encode(key)
+    #     except Exception as e:
+    #         messagebox.showerror("Error", f"Error getting hard drive info: {e}")
+    #         return None
 
     def encrypt_message_encoded(self, message):
         # Generate a random salt and derive a key from the password
@@ -422,7 +425,6 @@ class MzChat:
                     message = f"DISCONNECT:{self.username}"
                 elif old_username:
                     message = f"USERNAMECHANGE:{old_username}:{self.username}"
-                    self.update_users_list([self.username])
                 else:
                     message_text = self.message_entry.get().strip()
                     if not message_text:
@@ -431,8 +433,8 @@ class MzChat:
                     self.message_entry.delete(0, tk.END)
 
                 # Generate a random salt and derive a key from the password
-                salt = os.urandom(SALT_SIZE)                # Create salt
-                key = derive_key(self.password, salt)       # Dirive key
+                salt = os.urandom(SALT_SIZE)
+                key = derive_key(self.password, salt)
 
                 # Encrypt the message
                 encrypted_data = encrypt(key, message)
@@ -469,7 +471,8 @@ class MzChat:
                 if not data:
                     raise ConnectionError("Client disconnected")
 
-                encrypted_message_encoded = data.decode()
+                encrypted_message_encoded = data
+
                 encrypted_data = base64.urlsafe_b64decode(encrypted_message_encoded)
 
                 # Extract the salt from the encrypted data
@@ -479,18 +482,74 @@ class MzChat:
                 key = derive_key(self.password, salt)
 
                 # Decrypt the message
-                nonce = encrypted_data[SALT_SIZE:SALT_SIZE + NONCE_SIZE]
+                nonce = encrypted_data[SALT_SIZE:SALT_SIZE + IV_SIZE]
+                ciphertext = encrypted_data[SALT_SIZE + IV_SIZE:-TAG_SIZE]
                 tag = encrypted_data[-TAG_SIZE:]
-                ciphertext = encrypted_data[SALT_SIZE + NONCE_SIZE:-TAG_SIZE]
                 message = decrypt(b"".join([nonce, ciphertext, tag]), key)
 
-                if self.is_server:
-                    for c_conn in self.clients.values():
-                        if c_conn != conn:
-                            c_conn.sendall(data)
-                    self.add_message_to_chat(message)
+                if message.startswith("ENCRYPTEDUSERLIST:"):
+                    user_list = message.split(":", 1)[1].split(",")
+                    if self.is_server:
+                        self.update_users_list(user_list)
+                    else:
+                        self.update_users_list(user_list[1:])  # Remove the client's own username from the list
+
+                elif message.startswith("USERNAME:"):
+                    username = message.split(":", 1)[1]
+                    if self.is_server:
+                        self.clients[username] = conn
+                        self.update_users_list([self.username] + list(self.clients.keys()))
+                        self.broadcast_user_list()
+                        # Send server username to the client
+                        message = f"SERVERUSERNAME:{self.username}"
+                        encrypted_message = self.encrypt_message_encoded(message)
+                        conn.sendall(encrypted_message.encode())
+                    else:
+                        self.update_users_list([username] + self.users_list.get(0, tk.END))
+                elif message.startswith("SERVERUSERNAME:"):
+                    server_username = message.split(":", 1)[1]
+                    current_user_list = self.users_list.get(0, tk.END)
+                    if server_username not in current_user_list:
+                        self.update_users_list([server_username] + list(current_user_list))
+                elif message.startswith("USERNAMECHANGE:"):
+                    old_username, new_username = message.split(":", 1)[1].split(":", 1)
+                    if self.is_server:
+                        self.clients[new_username] = self.clients.pop(old_username)
+                        self.update_users_list(list(self.clients.keys()))
+                        self.broadcast_user_list()
+                elif message.startswith("DISCONNECT:"):
+                    username = message.split(":", 1)[1]
+                    if self.is_server:
+                        del self.clients[username]
+                        conn.close()
+                        self.update_users_list(list(self.clients.keys()))
+                #         self.broadcast_user_list()
+                # elif message.startswith("ENCRYPTEDUSERLIST:"):
+                #         user_list = message.split(":", 1)[1]
+                #         user_list = decrypted_user_list_message.split(",")
+                #         if self.is_server:
+                #             self.update_users_list(user_list)
+                #         else:
+                #             self.update_users_list(user_list[1:])  # Remove the client's own username from the list
+
+                elif message.startswith("USERLIST:"):
+                    user_list = message.split(":", 1)[1].split(",")
+                    try:
+                        decrypted_user_list = [self.decrypt_password(user) for user in user_list]
+                        if self.is_server:
+                            self.update_users_list(decrypted_user_list)
+                        else:
+                            self.update_users_list(decrypted_user_list[1:])  # Remove the client's own username from the list
+                    except Exception as e:
+                        break
                 else:
-                    self.add_message_to_chat(message)
+                    if self.is_server:
+                        for c_conn in self.clients.values():
+                            if c_conn != conn:
+                                c_conn.sendall(data)
+                        self.add_message_to_chat(message)
+                    else:
+                        self.add_message_to_chat(message)
             except ConnectionError as ce:
                 print(f"Client disconnected: {addr}")
                 if self.is_server:
